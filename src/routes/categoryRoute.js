@@ -1,12 +1,20 @@
-import express from "express";
-const router = express.Router();
+import { Router } from "express";
+import {
+  createCategory,
+  deleteCategory,
+  getCategory,
+  getCategoryById,
+  updateCategory,
+} from "../controller/categoryControllers.js";
 
-router.get("/", (req, res) => {
-  res.send("I,m From Category Routes");
-});
+const router = Router();
 
-router.post("/", (req, res) => {
-  res.send("req.body");
-});
+router.route("/").post(createCategory).get(getCategory);
+
+router
+  .route("/:id")
+  .get(getCategoryById)
+  .patch(updateCategory)
+  .delete(deleteCategory);
 
 export const categoryRoutes = router;

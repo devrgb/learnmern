@@ -1,4 +1,5 @@
 import { getDB } from "../config/db.js";
+import { ObjectId } from "mongodb";
 
 //Get Collection
 const getCollection = () => getDB().collection("product");
@@ -6,39 +7,108 @@ const getCollection = () => getDB().collection("product");
 //Create Product
 export const createProduct = async (req, res) => {
   try {
-    const { name, category, brand, ram, ssd, price, inStock } = req.body;
+    // 1. Allow only these fields
+    const allowedFields = [
+      "name",
+      "categoryId",
+      "brand",
+      "ram",
+      "ssd",
+      "price",
+      "inStock",
+    ];
 
-    if (!name || !category || !ram || !ssd) {
+    const unexpectedFields = Object.keys(req.body).filter(
+      (key) => !allowedFields.includes(key),
+    );
+
+    if (unexpectedFields.length > 0) {
       return res.status(400).json({
         success: false,
-        message:
-          "Please provide all required fields (name, category, ram, ssd, price)",
+        message: "Unexpected fields are not allowed",
+        fields: unexpectedFields,
       });
     }
 
-    const numericPrice = Number(price);
+    const { name, categoryId, brand, ram, ssd, price, inStock } = req.body;
+
+    if (
+      typeof name !== "string" ||
+      !name.trim() ||
+      typeof categoryId !== "string" ||
+      !categoryId.trim() ||
+      typeof ram !== "string" ||
+      !ram.trim() ||
+      typeof ssd !== "string" ||
+      !ssd.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide valid name, category, ram, and ssd",
+      });
+    }
+
+    if (!ObjectId.isValid(categoryId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid category ID",
+      });
+    }
+
+    const categoryObjectId = new ObjectId(categoryId);
+
+    // 4. Check whether the category exists
+    const categoryExists = await getDB()
+      .collection("category")
+      .findOne({ _id: categoryObjectId });
+
+    if (!categoryExists) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found. Please provide an existing category ID",
+      });
+    }
 
     if (
       price === undefined ||
       price === null ||
-      price === "" ||
-      !Number.isFinite(numericPrice)
+      (typeof price === "string" && !price.trim())
     ) {
       return res.status(400).json({
         success: false,
-        message: "Price must be a valid number",
+        message: "Price is required",
+      });
+    }
+    const numericPrice = Number(price);
+
+    if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Price must be a valid number greater than zero",
+      });
+    }
+    if (brand !== undefined && typeof brand !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Brand must be a string",
+      });
+    }
+
+    if (inStock !== undefined && typeof inStock !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "inStock must be true or false",
       });
     }
 
     const newProduct = {
       name: String(name).trim(),
-      category: String(category).trim(),
-      brand: String(brand).trim(),
+      categoryId: categoryObjectId,
+      brand: brand?.trim() ?? "",
       ram: String(ram).trim(),
       ssd: String(ssd).trim(),
       price: numericPrice,
-      inStock: inStock !== undefined ? Boolean(inStock) : true,
-      brand: brand ? String(brand).trim() : "",
+      inStock: inStock ?? true,
       createdAt: new Date(),
     };
 
@@ -67,7 +137,7 @@ export const getProduct = async (req, res) => {
   } else {
     res.status(200).json({
       success: true,
-      data: productData,
+      message: "No Product Found",
     });
   }
 };
@@ -119,8 +189,33 @@ export const updateProduct = async (req, res) => {
     };
 
     // If price is passed, ensure it is stored as a number
+    if (
+      updateFields.price !== undefined &&
+      (updateFields.price === "" || updateFields.price === null)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Price cannot be empty",
+      });
+    }
+
     if (updateFields.price !== undefined) {
-      updateFields.price = Number(updateFields.price);
+      const numericPrice = Number(updateFields.price);
+
+      if (!Number.isFinite(numericPrice)) {
+        return res.status(400).json({
+          success: false,
+          message: "Price must be a valid number",
+        });
+      }
+
+      if (numericPrice <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Price must be greater than zero",
+        });
+      }
+      updateFields.price = numericPrice;
     }
 
     const result = await getCollection().updateOne(
@@ -143,6 +238,36 @@ export const updateProduct = async (req, res) => {
       success: true,
       message: "Product updated successfully",
       data: updatedProduct,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Delete Product
+export const deleteProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid MongoDB ObjectId format",
+      });
+    }
+
+    const result = await getCollection().deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Product deleted successfully",
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
